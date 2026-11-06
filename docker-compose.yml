@@ -1,0 +1,73 @@
+name: lampbot
+
+services:
+  certs:
+    image: alpine/openssl:3.5.4
+    entrypoint: sh -c
+    command:
+      - |
+        [ -f /certs/server.pem ] && exit 0
+        openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=localhost" \
+          -addext "subjectAltName=DNS:localhost" -keyout /tmp/key.pem -out /tmp/crt.pem
+        cat /tmp/key.pem /tmp/crt.pem > /certs/server.pem && chmod 644 /certs/server.pem
+    volumes:
+      - certs:/certs
+
+  ejabberd:
+    image: ghcr.io/processone/ejabberd:25.10
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    environment:
+      CTL_ON_CREATE: >-
+        register admin localhost admin123 ;
+        register student localhost student123 ;
+        register bot localhost bot123 ;
+        add_rosteritem student localhost bot localhost lampbot Bots both ;
+        add_rosteritem bot localhost student localhost student Users both
+    ports:
+      - "5222:5222"
+      - "5280:5280"
+    volumes:
+      - ./ejabberd.yml:/opt/ejabberd/conf/ejabberd.yml:ro
+      - certs:/certs:ro
+    healthcheck:
+      test: ejabberdctl registered_users localhost | grep -q bot
+      interval: 3s
+      retries: 40
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
+
+  bot:
+    build: ./bot
+    depends_on:
+      ejabberd:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      XMPP_SERVER: ejabberd
+      MQTT_HOST: mosquitto
+    restart: on-failure
+
+  panel:
+    image: nginx:1.29-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./panel:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+volumes:
+  certs:

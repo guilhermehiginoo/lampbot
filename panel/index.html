@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lampbot</title>
+  <script src="https://cdn.jsdelivr.net/npm/strophe.js@3.1.1/dist/strophe.umd.min.js"></script>
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --border: #e3e6eb;
+      --text: #1b1f24;
+      --muted: #6b7380;
+      --accent: #ea1d2c;
+      --me: #ea1d2c;
+      --me-text: #ffffff;
+      --them: #eef0f3;
+      --ok: #1f9d55;
+      --off: #c0c4cc;
+      --glow: #ffd84d;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1216;
+        --card: #171b21;
+        --border: #262c35;
+        --text: #e6e9ee;
+        --muted: #8a93a1;
+        --them: #232933;
+        --off: #3a414c;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 24px 16px 8px;
+    }
+
+    h1 { margin: 0; font-size: 1.4rem; }
+    h1 span { color: var(--accent); }
+    h2 { margin: 0 0 12px; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
+    .pills { display: flex; gap: 8px; }
+
+    .pill {
+      font-size: .8rem;
+      padding: 4px 10px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .pill::before { content: "●"; margin-right: 6px; color: var(--off); }
+    .pill.ok::before { color: var(--ok); }
+
+    main {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 16px;
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 8px 16px 24px;
+    }
+
+    @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      min-width: 0;
+    }
+
+    .chat { display: flex; flex-direction: column; height: min(640px, 80vh); }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 4px;
+    }
+
+    .bubble {
+      max-width: 80%;
+      padding: 8px 12px;
+      border-radius: 14px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .bubble.me { align-self: flex-end; background: var(--me); color: var(--me-text); border-bottom-right-radius: 4px; }
+    .bubble.them { align-self: flex-start; background: var(--them); border-bottom-left-radius: 4px; }
+    .bubble.typing { color: var(--muted); font-style: italic; }
+
+    .hints { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+
+    .hints button {
+      font: inherit;
+      font-size: .8rem;
+      padding: 4px 10px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    form { display: flex; gap: 8px; }
+
+    input[type=text] {
+      flex: 1;
+      min-width: 0;
+      font: inherit;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button.send {
+      font: inherit;
+      font-weight: 600;
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:disabled { opacity: .5; cursor: default; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+    .lamp-box { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0; }
+
+    .lamp {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-size: 56px;
+      background: var(--them);
+      filter: grayscale(1);
+      transition: all .3s;
+    }
+
+    .lamp.on { background: var(--glow); box-shadow: 0 0 60px 16px #ffd84d88; filter: none; }
+
+    .switch { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+    .switch input { width: 22px; height: 22px; accent-color: var(--accent); cursor: pointer; }
+
+    .log {
+      height: 220px;
+      overflow-y: auto;
+      font: 12px/1.5 ui-monospace, monospace;
+      color: var(--muted);
+    }
+
+    .log div { white-space: pre-wrap; word-wrap: break-word; }
+    .log b { color: var(--text); font-weight: 500; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>lamp<span>bot</span></h1>
+    <div class="pills">
+      <span id="xmpp-status" class="pill">XMPP</span>
+      <span id="mqtt-status" class="pill">MQTT</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card chat" aria-label="Chat with lampbot">
+      <h2>Chat · student@localhost → bot@localhost</h2>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div class="hints">
+        <button type="button">turn on the lamp</button>
+        <button type="button">it's way too bright in here</button>
+        <button type="button">who are you?</button>
+        <button type="button">/state</button>
+      </div>
+      <form id="chat-form">
+        <input id="chat-input" type="text" placeholder="Message lampbot…" autocomplete="off" aria-label="Message" disabled>
+        <button class="send" id="send" disabled>Send</button>
+      </form>
+    </section>
+
+    <div class="side">
+      <section class="card" aria-label="Lamp">
+        <h2>Lamp · MQTT device</h2>
+        <div class="lamp-box">
+          <div id="lamp" class="lamp" aria-hidden="true">💡</div>
+          <label class="switch"><input type="checkbox" id="toggle"> Lamp on</label>
+        </div>
+      </section>
+
+      <section class="card" aria-label="Event log">
+        <h2>MQTT events</h2>
+        <div id="log" class="log"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const HOST = location.hostname || "localhost";
+    const XMPP_URL = `ws://${HOST}:5280/ws`;
+    const MQTT_URL = `ws://${HOST}:9001`;
+    const USER = "student@localhost";
+    const PASSWORD = "student123";
+    const BOT = "bot@localhost";
+    const TOPIC_COMMAND = "iot/lamp/command";
+    const TOPIC_STATE = "iot/lamp/state";
+    const TOPIC_MESSAGES = "iot/chat/messages";
+
+    const $ = (id) => document.getElementById(id);
+    const messages = $("messages");
+    const input = $("chat-input");
+    const sendButton = $("send");
+    const toggle = $("toggle");
+    let typing = null;
+
+    function bubble(text, who) {
+      const div = document.createElement("div");
+      div.className = `bubble ${who}`;
+      div.textContent = text;
+      messages.append(div);
+      messages.scrollTop = messages.scrollHeight;
+      return div;
+    }
+
+    function log(label, text) {
+      const line = document.createElement("div");
+      const strong = document.createElement("b");
+      strong.textContent = label;
+      line.append(`${new Date().toLocaleTimeString()} `, strong, ` ${text}`);
+      $("log").prepend(line);
+    }
+
+    function setStatus(id, ok, text) {
+      $(id).classList.toggle("ok", ok);
+      $(id).textContent = text;
+    }
+
+    const xmppConn = new Strophe.Connection(XMPP_URL);
+
+    function sendChat(text) {
+      text = text.trim();
+      if (!text || !xmppConn.connected) return;
+      xmppConn.send($msg({ to: BOT, type: "chat" }).c("body").t(text));
+      bubble(text, "me");
+      typing ??= bubble("lampbot is thinking…", "them typing");
+    }
+
+    xmppConn.connect(`${USER}/web`, PASSWORD, (status) => {
+      if (status === Strophe.Status.CONNECTED) {
+        setStatus("xmpp-status", true, "XMPP");
+        xmppConn.send($pres());
+        input.disabled = sendButton.disabled = false;
+        input.focus();
+      } else if ([Strophe.Status.DISCONNECTED, Strophe.Status.AUTHFAIL, Strophe.Status.CONNFAIL].includes(status)) {
+        setStatus("xmpp-status", false, "XMPP offline");
+        input.disabled = sendButton.disabled = true;
+      }
+    });
+
+    xmppConn.addHandler((stanza) => {
+      const body = stanza.getElementsByTagName("body")[0];
+      if (body) {
+        typing?.remove();
+        typing = null;
+        bubble(body.textContent, "them");
+      }
+      return true;
+    }, null, "message", "chat");
+
+    $("chat-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      sendChat(input.value);
+      input.value = "";
+    });
+
+    document.querySelectorAll(".hints button").forEach((button) =>
+      button.addEventListener("click", () => sendChat(button.textContent)));
+
+    const broker = mqtt.connect(MQTT_URL, { clientId: "panel-" + Math.random().toString(16).slice(2, 8) });
+
+    function showLamp(on) {
+      toggle.checked = on;
+      $("lamp").classList.toggle("on", on);
+    }
+
+    function setLamp(on, source) {
+      showLamp(on);
+      broker.publish(TOPIC_STATE, on ? "ON" : "OFF", { retain: true });
+      log("state", `${on ? "ON" : "OFF"} (${source})`);
+    }
+
+    broker.on("connect", () => {
+      setStatus("mqtt-status", true, "MQTT");
+      broker.subscribe([TOPIC_COMMAND, TOPIC_STATE, TOPIC_MESSAGES]);
+      log("broker", `connected to ${MQTT_URL}`);
+    });
+    broker.on("close", () => setStatus("mqtt-status", false, "MQTT offline"));
+
+    broker.on("message", (topic, payload) => {
+      const text = payload.toString();
+      if (topic === TOPIC_STATE) {
+        showLamp(text.toUpperCase() === "ON");
+      } else if (topic === TOPIC_COMMAND) {
+        log(topic, text);
+        setLamp(text.toUpperCase() === "ON", "from chat");
+      } else if (topic === TOPIC_MESSAGES) {
+        const message = JSON.parse(text);
+        log(topic, `${message.from}: ${message.text}`);
+      }
+    });
+
+    toggle.addEventListener("change", () => setLamp(toggle.checked, "clicked on panel"));
+  </script>
+</body>
+
+</html>
